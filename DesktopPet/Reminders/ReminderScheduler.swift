@@ -19,7 +19,7 @@ import Combine
         self.store = store; self.now = now; self.calendar = calendar
         do { data = try store.load(); ready = true } catch { self.error = error.localizedDescription }
         let center = NotificationCenter.default
-        for name in [NSSystemClockDidChange, NSSystemTimeZoneDidChange] {
+        for name in [NSNotification.Name.NSSystemClockDidChange, NSNotification.Name.NSSystemTimeZoneDidChange] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in self?.schedule() }
             })
