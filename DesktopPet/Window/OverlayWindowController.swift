@@ -35,6 +35,7 @@ final class OverlayWindowController: NSWindowController {
     var onVisibilityChanged: (() -> Void)?
 
     // MARK: - State
+    private var loadGeneration = UUID()
     private var currentAssetURL: URL?
     private var currentAssetIsSecurityScoped: Bool = false
     private var isVideoMode: Bool = false
@@ -162,71 +163,61 @@ final class OverlayWindowController: NSWindowController {
 
     // MARK: - Asset Loading
 
-    func loadAssetFromBookmark(_ bookmark: Data) -> Bool {
-        guard let url = resolveBookmark(bookmark) else { return false }
-        let didStartSecurityScope = startAccess(url)
-
-        let didLoad = loadAsset(
-            url: url,
-            bookmarkData: bookmark,
-            preservingSecurityScope: didStartSecurityScope
-        )
-        if !didLoad, didStartSecurityScope {
-            stopAccess(url)
-        }
-
-        return didLoad
+    func loadAssetFromBookmark(_ bookmark: Data, completion: @escaping (Bool) -> Void = { _ in }) {
+        guard let url = resolveBookmark(bookmark) else { completion(false); return }
+        let started = startAccess(url)
+        loadAsset(url: url, bookmarkData: bookmark, preservingSecurityScope: started, completion: completion)
     }
 
-    /// Stop accessing the current security-scoped resource if one is active.
     private func stopCurrentSecurityScopedAccess() {
         guard currentAssetIsSecurityScoped, let url = currentAssetURL else { return }
         stopAccess(url)
         currentAssetIsSecurityScoped = false
     }
 
-    func loadAsset(url: URL) -> Bool {
-        loadAsset(url: url, bookmarkData: SecurityScopedAccess.bookmark(for: url), preservingSecurityScope: false)
+    func loadAsset(url: URL, completion: @escaping (Bool) -> Void = { _ in }) {
+        loadAsset(url: url, bookmarkData: SecurityScopedAccess.bookmark(for: url), preservingSecurityScope: false, completion: completion)
     }
 
-    private func loadAsset(url: URL, bookmarkData: Data?, preservingSecurityScope: Bool) -> Bool {
-        guard let loadedAsset = decodeAsset(url: url) else { return false }
-
-        let previousAssetURL = currentAssetURL
-        let previousAssetWasSecurityScoped = currentAssetIsSecurityScoped
-
-        applyLoadedAsset(loadedAsset)
-
-        let retainPreviousScope = previousAssetWasSecurityScoped && previousAssetURL == url && !preservingSecurityScope
-        currentAssetURL = url
-        currentAssetIsSecurityScoped = preservingSecurityScope || retainPreviousScope
-        settings.assetBookmark = bookmarkData
-
-        if previousAssetWasSecurityScoped,
-           let previousAssetURL,
-           !retainPreviousScope {
-            stopAccess(previousAssetURL)
-        }
-
-        return true
-    }
-
-    private func decodeAsset(url: URL) -> LoadedAsset? {
-        let ext = url.pathExtension.lowercased()
-
-        switch ext {
-        case "gif":
-            return GIFDecoder.decode(url: url).map(LoadedAsset.frameSequence)
-        case "png", "apng":
-            return APNGDecoder.decode(url: url).map(LoadedAsset.frameSequence)
-        case "mp4", "mov", "m4v", "avi", "mkv":
-            return VideoPlayer(url: url).map(LoadedAsset.video)
-        default:
-            var isDirectory: ObjCBool = false
-            if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
-                return PNGSequenceDecoder.decode(directory: url).map(LoadedAsset.frameSequence)
+    private func loadAsset(url: URL, bookmarkData: Data?, preservingSecurityScope: Bool, completion: @escaping (Bool) -> Void) {
+        let generation = UUID()
+        loadGeneration = generation
+        let release = stopAccess
+        let finish: (LoadedAsset?) -> Void = { [weak self] asset in
+            guard let self, self.loadGeneration == generation, let asset else {
+                if preservingSecurityScope { release(url) }
+                completion(false)
+                return
             }
-            return APNGDecoder.decode(url: url).map(LoadedAsset.frameSequence)
+            let previousURL = self.currentAssetURL
+            let previousScoped = self.currentAssetIsSecurityScoped
+            self.applyLoadedAsset(asset)
+            let retainPrevious = previousScoped && previousURL == url && !preservingSecurityScope
+            self.currentAssetURL = url
+            self.currentAssetIsSecurityScoped = preservingSecurityScope || retainPrevious
+            self.settings.assetBookmark = bookmarkData
+            if previousScoped, let previousURL, !retainPrevious { release(previousURL) }
+            completion(true)
+        }
+        let ext = url.pathExtension.lowercased()
+        if ["mp4", "mov", "m4v", "avi", "mkv"].contains(ext) {
+            finish(VideoPlayer(url: url).map(LoadedAsset.video))
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let sequence: FrameSequence?
+            switch ext {
+            case "gif": sequence = GIFDecoder.decode(url: url)
+            case "png", "apng": sequence = APNGDecoder.decode(url: url)
+            default:
+                var directory: ObjCBool = false
+                if FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue {
+                    sequence = PNGSequenceDecoder.decode(directory: url)
+                } else {
+                    sequence = APNGDecoder.decode(url: url)
+                }
+            }
+            DispatchQueue.main.async { finish(sequence.map(LoadedAsset.frameSequence)) }
         }
     }
 
@@ -379,7 +370,7 @@ extension OverlayWindowController: PetViewDelegate {
     }
 
     func petView(_ view: PetView, didDropFileAt url: URL) {
-        _ = loadAsset(url: url)
+        loadAsset(url: url)
     }
 
     func petViewDidFinishDrag(_ view: PetView) {

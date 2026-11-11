@@ -249,7 +249,7 @@ import UniformTypeIdentifiers
 
         NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url {
-            _ = pet.loadAsset(url: url)
+            pet.loadAsset(url: url)
         }
     }
 

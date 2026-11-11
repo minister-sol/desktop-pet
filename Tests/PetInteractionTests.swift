@@ -32,6 +32,7 @@ final class PetInteractionTests: XCTestCase {
         XCTAssertEqual(invalidReads, 0)
     }
 
+    @MainActor
     func testSecurityScopeSameURLReplacementBalancesAccess() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -43,39 +44,34 @@ final class PetInteractionTests: XCTestCase {
         let other = directory.appendingPathComponent("other.png")
         try Data("invalid".utf8).write(to: invalid)
         try png.write(to: other)
-
-        await MainActor.run {
-            _ = NSApplication.shared
-            var starts = 0
-            var stops = 0
-            var stoppedURLs: [URL] = []
-            autoreleasepool {
-                var record = PetRecord.default(instanceID: "scope-test", index: 1)
-                record.playing = false
-                let settings = AppSettings(record: record)
-                let controller = OverlayWindowController(settings: settings,
-                    resolveBookmark: { data in data == Data([4]) ? invalid : (data == Data([5]) ? other : file) },
-                    startAccess: { _ in starts += 1; return starts != 3 },
-                    stopAccess: { url in stops += 1; stoppedURLs.append(url) })
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([1])))
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([2])))
-                XCTAssertEqual(starts, 2)
-                XCTAssertEqual(stops, 1)
-                XCTAssertEqual(stoppedURLs, [file])
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([3])))
-                XCTAssertEqual(stops, 1)
-                XCTAssertTrue(controller.loadAsset(url: file))
-                XCTAssertEqual(stops, 1)
-                XCTAssertFalse(controller.loadAssetFromBookmark(Data([4])))
-                XCTAssertEqual(stops, 2)
-                XCTAssertEqual(stoppedURLs, [file, invalid])
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([5])))
-                XCTAssertEqual(stops, 3)
-                XCTAssertEqual(stoppedURLs, [file, invalid, file])
+        _ = NSApplication.shared
+        var starts = 0
+        var stops: [URL] = []
+        var record = PetRecord.default(instanceID: "scope-test", index: 1)
+        record.playing = false
+        var controller: OverlayWindowController? = OverlayWindowController(settings: AppSettings(record: record),
+            resolveBookmark: { data in data == Data([4]) ? invalid : (data == Data([5]) ? other : file) },
+            startAccess: { _ in starts += 1; return starts != 3 },
+            stopAccess: { stops.append($0) })
+        func load(_ data: Data) async -> Bool {
+            await withCheckedContinuation { continuation in
+                controller?.loadAssetFromBookmark(data) { continuation.resume(returning: $0) }
             }
-            XCTAssertEqual(stops, 4)
-            XCTAssertEqual(stoppedURLs, [file, invalid, file, other])
         }
+        let first = await load(Data([1])); XCTAssertTrue(first)
+        let second = await load(Data([2])); XCTAssertTrue(second)
+        XCTAssertEqual(stops, [file])
+        let third = await load(Data([3])); XCTAssertTrue(third)
+        let ordinary: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAsset(url: file) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(ordinary)
+        let failed = await load(Data([4])); XCTAssertFalse(failed)
+        XCTAssertEqual(stops, [file, invalid])
+        let replacement = await load(Data([5])); XCTAssertTrue(replacement)
+        XCTAssertEqual(stops, [file, invalid, file])
+        controller = nil
+        XCTAssertEqual(stops, [file, invalid, file, other])
     }
 
     #if DEBUG
