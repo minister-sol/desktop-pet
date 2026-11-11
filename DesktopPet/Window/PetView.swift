@@ -6,9 +6,16 @@ import AppKit
 import QuartzCore
 import CoreGraphics
 
+enum PetInteraction {
+    static func isDrag(deltaX: CGFloat, deltaY: CGFloat) -> Bool {
+        hypot(deltaX, deltaY) >= 4
+    }
+}
+
 protocol PetViewDelegate: AnyObject {
     func petView(_ view: PetView, didDropFileAt url: URL)
     func petViewDidFinishDrag(_ view: PetView)
+    func petViewDidClick(_ view: PetView)
 }
 
 final class PetView: NSView {
@@ -27,6 +34,7 @@ final class PetView: NSView {
     // MARK: - Drag State
     private var dragStartMouseLocation: NSPoint?
     private var dragStartWindowOrigin:  NSPoint?
+    private var didDrag = false
 
     // MARK: - Init
 
@@ -77,19 +85,24 @@ final class PetView: NSView {
     // MARK: - Mouse Events
 
     override func mouseDown(with event: NSEvent) {
-        guard !lockPosition, !clickThrough else { return }
+        guard !clickThrough else { return }
+        didDrag = false
         dragStartMouseLocation = NSEvent.mouseLocation
         dragStartWindowOrigin  = window?.frame.origin
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard !lockPosition, !clickThrough,
+        guard !clickThrough,
               let startMouse  = dragStartMouseLocation,
               let startOrigin = dragStartWindowOrigin,
               let window = window
         else { return }
 
         let cur = NSEvent.mouseLocation
+        if PetInteraction.isDrag(deltaX: cur.x - startMouse.x, deltaY: cur.y - startMouse.y) {
+            didDrag = true
+        }
+        guard didDrag, !lockPosition else { return }
         window.setFrameOrigin(NSPoint(
             x: startOrigin.x + cur.x - startMouse.x,
             y: startOrigin.y + cur.y - startMouse.y
@@ -97,10 +110,19 @@ final class PetView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard dragStartMouseLocation != nil else { return }
+        guard let startMouse = dragStartMouseLocation else { return }
+        let endMouse = NSEvent.mouseLocation
+        didDrag = didDrag || PetInteraction.isDrag(
+            deltaX: endMouse.x - startMouse.x,
+            deltaY: endMouse.y - startMouse.y
+        )
         dragStartMouseLocation = nil
         dragStartWindowOrigin  = nil
-        delegate?.petViewDidFinishDrag(self)
+        if didDrag {
+            if !lockPosition { delegate?.petViewDidFinishDrag(self) }
+        } else {
+            delegate?.petViewDidClick(self)
+        }
     }
 
     // MARK: - Drag & Drop Import

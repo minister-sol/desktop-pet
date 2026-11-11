@@ -14,6 +14,8 @@ final class MenuBarController: NSObject {
 
     // MARK: - Status Item
     private var statusItem: NSStatusItem!
+    var reminderScheduler: ReminderScheduler?
+    private var reminderPanel: NSPanel?
 
     // MARK: - Per-pet panels  [instanceID: NSPanel]
     private var settingsPanels: [String: NSPanel] = [:]
@@ -49,6 +51,10 @@ final class MenuBarController: NSObject {
 
     private func showContextMenu(_ sender: NSStatusBarButton) {
         let menu = NSMenu()
+
+        let reminders = NSMenuItem(title: "Reminders… (\(reminderScheduler?.data.pending.count ?? 0) pending)", action: #selector(openReminders), keyEquivalent: "")
+        reminders.target = self
+        menu.addItem(reminders)
 
         // ── Add pet ──────────────────────────────────────────────────────
         let addItem = NSMenuItem(title: "Add Pet…", action: #selector(addPet), keyEquivalent: "n")
@@ -126,6 +132,20 @@ final class MenuBarController: NSObject {
     }
 
     // MARK: - Actions
+
+    @objc private func openReminders() {
+        guard let scheduler = reminderScheduler else { return }
+        if reminderPanel == nil {
+            let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 550, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            panel.title = "Reminders"
+            panel.contentViewController = NSHostingController(rootView: ReminderView(scheduler: scheduler))
+            panel.isReleasedWhenClosed = false
+            panel.center()
+            reminderPanel = panel
+        }
+        reminderPanel?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     @objc private func addPet() {
         onAddPet?()

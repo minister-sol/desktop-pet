@@ -24,6 +24,8 @@ final class OverlayWindowController: NSWindowController {
 
     // MARK: - Views
     private var petView: PetView!
+    private var greeting: NSTextField?
+    private var greetingDismissal: DispatchWorkItem?
 
     // MARK: - State
     private var currentAssetURL: URL?
@@ -289,6 +291,31 @@ extension OverlayWindowController: AnimationPlayerDelegate {
 // MARK: - PetViewDelegate
 
 extension OverlayWindowController: PetViewDelegate {
+    func petViewDidClick(_ view: PetView) {
+        showReminder("你好呀！")
+    }
+
+    func showReminder(_ text: String) {
+        guard let view = petView else { return }
+        greetingDismissal?.cancel()
+        greeting?.removeFromSuperview()
+        let label = NSTextField(labelWithString: text)
+        label.alignment = .center
+        label.drawsBackground = true
+        label.backgroundColor = .controlBackgroundColor
+        label.isBezeled = false
+        label.frame = NSRect(x: 10, y: max(0, view.bounds.height - 40), width: max(0, view.bounds.width - 20), height: 28)
+        label.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(label)
+        greeting = label
+        let dismissal = DispatchWorkItem { [weak self, weak label] in
+            label?.removeFromSuperview()
+            self?.greeting = nil
+        }
+        greetingDismissal = dismissal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: dismissal)
+    }
+
     func petView(_ view: PetView, didDropFileAt url: URL) {
         _ = loadAsset(url: url)
     }

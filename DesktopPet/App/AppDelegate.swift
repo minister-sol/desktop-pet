@@ -10,13 +10,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pets: [OverlayWindowController] = []
     private let petsStore = PetsStore()
     private var menuBarController: MenuBarController!
+    private var reminderScheduler: ReminderScheduler!
 
     // MARK: - Launch
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
+        reminderScheduler = ReminderScheduler()
         menuBarController = MenuBarController()
+        menuBarController.reminderScheduler = reminderScheduler
+        reminderScheduler.onDelivery = { [weak self] reminder in
+            self?.pets.first(where: { $0.isVisible })?.showReminder(reminder.text)
+        }
         menuBarController.onAddPet    = { [weak self] in self?.addPet() }
         menuBarController.onRemovePet = { [weak self] id in self?.removePet(id: id) }
 

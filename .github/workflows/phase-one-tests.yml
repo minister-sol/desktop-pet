@@ -1,0 +1,29 @@
+name: macOS XCTest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record environment
+        run: |
+          uname -a
+          uname -m
+          xcodebuild -version
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          xcodebuild test -project DesktopPet.xcodeproj -scheme DesktopPet -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO | tee xcode-test.log
+          if ! grep -Eq 'Executed [1-9][0-9]* tests?' xcode-test.log; then
+            echo 'No XCTest tests were reported.'
+            exit 1
+          fi

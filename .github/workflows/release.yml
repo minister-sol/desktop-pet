@@ -116,6 +116,10 @@ jobs:
             DesktopPet/Window/OverlayWindow.swift \
             DesktopPet/Window/PetView.swift \
             DesktopPet/Window/OverlayWindowController.swift \
+            DesktopPet/Reminders/Reminder.swift \
+            DesktopPet/Reminders/ReminderStore.swift \
+            DesktopPet/Reminders/ReminderScheduler.swift \
+            DesktopPet/Reminders/ReminderView.swift \
             DesktopPet/MenuBar/MenuBarController.swift \
             -o "$BIN/DesktopPet"
 

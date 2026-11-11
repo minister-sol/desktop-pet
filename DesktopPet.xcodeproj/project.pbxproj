@@ -26,6 +26,11 @@
 		A016 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F016 /* Assets.xcassets */; };
 		A017 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = F017 /* Info.plist */; };
 		A018 /* PetsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F018 /* PetsStore.swift */; };
+		TESTBUILD = {isa = PBXBuildFile; fileRef = TESTFILE; };
+		A019 /* Reminder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F019; };
+		A020 /* ReminderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F020; };
+		A021 /* ReminderScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = F021; };
+		A022 /* ReminderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F022; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -49,6 +54,12 @@
 		F017 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "App/Info.plist"; sourceTree = "<group>"; };
 		F018 /* PetsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Settings/PetsStore.swift"; sourceTree = "<group>"; };
 		PROD /* DesktopPet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DesktopPet.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		TESTFILE = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/PetInteractionTests.swift; sourceTree = "<group>"; };
+		TESTPROD = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = DesktopPetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F019 /* Reminder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Reminders/Reminder.swift"; sourceTree = "<group>"; };
+		F020 /* ReminderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Reminders/ReminderStore.swift"; sourceTree = "<group>"; };
+		F021 /* ReminderScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Reminders/ReminderScheduler.swift"; sourceTree = "<group>"; };
+		F022 /* ReminderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Reminders/ReminderView.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +69,7 @@
 			files = ();
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		TESTFRAMEWORKS = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -65,6 +77,7 @@
 			isa = PBXGroup;
 			children = (
 				SRCGROUP /* DesktopPet */,
+				TESTFILE,
 				PRODGROUP /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,6 +86,7 @@
 			isa = PBXGroup;
 			children = (
 				PROD /* DesktopPet.app */,
+				TESTPROD,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -98,6 +112,10 @@
 				F014 /* SettingsView.swift */,
 				F018 /* PetsStore.swift */,
 				F015 /* MenuBarController.swift */,
+				F019 /* Reminder.swift */,
+				F020 /* ReminderStore.swift */,
+				F021 /* ReminderScheduler.swift */,
+				F022 /* ReminderView.swift */,
 				F016 /* Assets.xcassets */,
 			);
 			name = DesktopPet;
@@ -122,6 +140,7 @@
 			productReference = PROD /* DesktopPet.app */;
 			productType = "com.apple.product-type.application";
 		};
+		TESTTARGET = {isa = PBXNativeTarget; buildConfigurationList = TESTCONFIGS; buildPhases = (TESTSOURCES, TESTFRAMEWORKS); buildRules = (); dependencies = (TESTDEPENDENCY); name = DesktopPetTests; productName = DesktopPetTests; productReference = TESTPROD; productType = "com.apple.product-type.bundle.unit-test"; };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -146,7 +165,7 @@
 			productRefGroup = PRODGROUP;
 			projectDirPath = "";
 			projectRoot = "";
-			targets = (TARGET);
+			targets = (TARGET, TESTTARGET);
 		};
 /* End PBXProject section */
 
@@ -183,11 +202,22 @@
 				A014 /* SettingsView.swift in Sources */,
 				A018 /* PetsStore.swift in Sources */,
 				A015 /* MenuBarController.swift in Sources */,
+				A022 /* ReminderView.swift in Sources */,
+				A021 /* ReminderScheduler.swift in Sources */,
+				A020 /* ReminderStore.swift in Sources */,
+				A019 /* Reminder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		TESTSOURCES = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (TESTBUILD); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXContainerItemProxy section */
+		TESTPROXY = {isa = PBXContainerItemProxy; containerPortal = PROJECT; proxyType = 1; remoteGlobalIDString = TARGET; remoteInfo = DesktopPet; };
+/* End PBXContainerItemProxy section */
+/* Begin PBXTargetDependency section */
+		TESTDEPENDENCY = {isa = PBXTargetDependency; target = TARGET; targetProxy = TESTPROXY; };
+/* End PBXTargetDependency section */
 /* Begin XCBuildConfiguration section */
 		DEBUGCFG = {
 			isa = XCBuildConfiguration;
@@ -322,6 +352,8 @@
 			};
 			name = Release;
 		};
+		TESTDEBUG = {isa = XCBuildConfiguration; buildSettings = {GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = "com.bssm-oss.desktop-pet.tests"; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DesktopPet.app/Contents/MacOS/DesktopPet"; BUNDLE_LOADER = "$(TEST_HOST)";}; name = Debug; };
+		TESTRELEASE = {isa = XCBuildConfiguration; buildSettings = {GENERATE_INFOPLIST_FILE = YES; PRODUCT_BUNDLE_IDENTIFIER = "com.bssm-oss.desktop-pet.tests"; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_VERSION = 5.0; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DesktopPet.app/Contents/MacOS/DesktopPet"; BUNDLE_LOADER = "$(TEST_HOST)";}; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -337,6 +369,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		TESTCONFIGS = {isa = XCConfigurationList; buildConfigurations = (TESTDEBUG, TESTRELEASE); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 	};
