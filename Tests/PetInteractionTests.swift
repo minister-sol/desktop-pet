@@ -164,6 +164,26 @@ final class PetInteractionTests: XCTestCase {
     }
 
     @MainActor
+    func testDirectReloadRejectsFailedIndependentScope() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        var starts = 0
+        let controller = OverlayWindowController(settings: AppSettings(record: .default(instanceID: "scope-failure", index: 1)),
+            resolveBookmark: { _ in file }, startAccess: { _ in starts += 1; return starts == 1 }, stopAccess: { _ in })
+        let initial: Bool = await withCheckedContinuation { continuation in
+            controller.loadAssetFromBookmark(Data([1])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(initial)
+        let reload: Bool = await withCheckedContinuation { continuation in
+            controller.loadAsset(url: file) { continuation.resume(returning: $0) }
+        }
+        XCTAssertFalse(reload)
+        XCTAssertEqual(starts, 2)
+    }
+
+    @MainActor
     func testRestoredPetsRetainSavedOrderWhenLoadsFinishOutOfOrder() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let store = PetsStore(storeURL: directory.appendingPathComponent("pets.plist"))

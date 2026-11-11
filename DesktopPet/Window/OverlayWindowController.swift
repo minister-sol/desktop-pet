@@ -180,6 +180,11 @@ final class OverlayWindowController: NSWindowController {
 
     func loadAsset(url: URL, completion: @escaping (Bool) -> Void = { _ in }) {
         let started = startAccess(url)
+        if !started && currentAssetIsSecurityScoped && currentAssetURL == url {
+            loadGeneration = UUID()
+            completion(false)
+            return
+        }
         loadAsset(url: url, bookmarkData: SecurityScopedAccess.bookmark(for: url), preservingSecurityScope: started, completion: completion)
     }
 
