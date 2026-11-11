@@ -2,14 +2,14 @@ name: Build macOS
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
 
 jobs:
   build:
     name: Build DesktopPet.app
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
