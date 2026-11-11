@@ -67,11 +67,11 @@ final class PetInteractionTests: XCTestCase {
         }
         XCTAssertTrue(ordinary)
         let failed = await load(Data([4])); XCTAssertFalse(failed)
-        XCTAssertEqual(stops, [file, invalid])
+        XCTAssertEqual(stops, [file, file, invalid])
         let replacement = await load(Data([5])); XCTAssertTrue(replacement)
-        XCTAssertEqual(stops, [file, invalid, file])
+        XCTAssertEqual(stops, [file, file, invalid, file])
         controller = nil
-        XCTAssertEqual(stops, [file, invalid, file, other])
+        XCTAssertEqual(stops, [file, file, invalid, file, other])
     }
 
     @MainActor
@@ -126,6 +126,55 @@ final class PetInteractionTests: XCTestCase {
         gate.signal()
         await fulfillment(of: [finished], timeout: 5)
         XCTAssertEqual(stopped, [url])
+    }
+
+    @MainActor
+    func testDirectReloadKeepsIndependentScopeUntilDecodeCompletes() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let started = expectation(description: "reload started")
+        let finished = expectation(description: "reload finished")
+        let gate2 = DispatchSemaphore(value: 0)
+        var starts = 0
+        var stops = 0
+        var controller: OverlayWindowController?
+        var decodeCount = 0
+        let lock = NSLock()
+        controller = OverlayWindowController(settings: AppSettings(record: .default(instanceID: "reload2", index: 2)),
+            resolveBookmark: { _ in file }, startAccess: { _ in starts += 1; return true }, stopAccess: { _ in stops += 1 },
+            decodeFrames: { url in
+                lock.lock(); decodeCount += 1; let count = decodeCount; lock.unlock()
+                if count == 2 { started.fulfill(); gate2.wait() }
+                return APNGDecoder.decode(url: url)
+            })
+        let loaded: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAssetFromBookmark(Data([1])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(loaded)
+        controller?.loadAsset(url: file) { success in XCTAssertFalse(success); finished.fulfill() }
+        await fulfillment(of: [started], timeout: 5)
+        controller = nil
+        XCTAssertEqual(starts, 2)
+        XCTAssertEqual(stops, 1)
+        gate2.signal()
+        await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(stops, 2)
+    }
+
+    @MainActor
+    func testRestoredPetsRetainSavedOrderWhenLoadsFinishOutOfOrder() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = PetsStore(storeURL: directory.appendingPathComponent("pets.plist"))
+        let scheduler = ReminderScheduler(store: ReminderStore(url: directory.appendingPathComponent("reminders.plist")))
+        let delegate = AppDelegate(petsStore: store, scheduler: scheduler, pets: [])
+        delegate.setRestorationOrderForTesting(["a", "b", "c"])
+        for id in ["c", "a", "b"] {
+            delegate.insertRestoredPetForTesting(OverlayWindowController(settings: AppSettings(record: .default(instanceID: id, index: 1))))
+        }
+        XCTAssertEqual(delegate.restoredPetIDsForTesting, ["a", "b", "c"])
+        try? FileManager.default.removeItem(at: directory)
     }
 
     #if DEBUG

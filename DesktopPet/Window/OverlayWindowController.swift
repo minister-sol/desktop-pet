@@ -179,7 +179,8 @@ final class OverlayWindowController: NSWindowController {
     }
 
     func loadAsset(url: URL, completion: @escaping (Bool) -> Void = { _ in }) {
-        loadAsset(url: url, bookmarkData: SecurityScopedAccess.bookmark(for: url), preservingSecurityScope: false, completion: completion)
+        let started = startAccess(url)
+        loadAsset(url: url, bookmarkData: SecurityScopedAccess.bookmark(for: url), preservingSecurityScope: started, completion: completion)
     }
 
     private func loadAsset(url: URL, bookmarkData: Data?, preservingSecurityScope: Bool, completion: @escaping (Bool) -> Void) {
