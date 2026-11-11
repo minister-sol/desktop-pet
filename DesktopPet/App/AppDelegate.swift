@@ -4,7 +4,7 @@
 
 import AppKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - State
     private var pets: [OverlayWindowController] = []
