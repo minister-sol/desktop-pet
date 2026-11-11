@@ -59,3 +59,8 @@
 遇到暂时无法测试的事项，在相应类别新增待办，写明范围、受阻原因、所需环境和可复现的验证步骤；必要时链接相关变更。执行后记录日期、提交号、环境、命令或操作、结果及证据位置；失败时记录复现步骤并保留待办，修复后复验。不要记录凭据或个人敏感数据。
 
 - [ ] 在 GitHub 托管 macOS runner 首次运行 phase-one-tests.yml，检查 build-for-testing、完整 XCTest 数量、隔离启动断言、默认数据快照与上传证据；确认图形会话，并人工核实文件选择器和数据读取行为。Windows 上无法执行，CI 配置尚未实跑。
+
+## 2026-11-12 GitHub Actions 运行记录
+
+- 提交 9314b3ef39ab0a5d67b9206bf1fe79ded9165192 的 macOS XCTest 工作流运行 43071671789：build-for-testing 和 XCTest 成功，31 项测试、0 失败；隔离宿主断言通过，监控的默认数据快照未变化。证据：https://github.com/zhongjing0412/desktop-pet/actions/runs/43071671789 ，产物 macos-xctest-evidence（13877942262）。
+- 此结果不证明没有读取默认数据或打开选择器，也未覆盖真实图形交互、透明度、全屏 Space、Thread Sanitizer 和实际安全作用域授权；上方对应待办仍保留。
