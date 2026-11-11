@@ -74,6 +74,60 @@ final class PetInteractionTests: XCTestCase {
         XCTAssertEqual(stops, [file, invalid, file, other])
     }
 
+    @MainActor
+    func testSupersededDecodeDoesNotReplaceNewerAssetAndReleasesScope() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let slow = directory.appendingPathComponent("slow.png")
+        let fast = directory.appendingPathComponent("fast.png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: slow); try png.write(to: fast)
+        let started = expectation(description: "background decode started")
+        let oldDone = expectation(description: "old request finished")
+        let newDone = expectation(description: "new request finished")
+        let gate = DispatchSemaphore(value: 0)
+        var stopped: [URL] = []
+        let settings = AppSettings(record: .default(instanceID: "async-test", index: 1))
+        let controller = OverlayWindowController(settings: settings,
+            resolveBookmark: { $0 == Data([1]) ? slow : fast },
+            startAccess: { _ in true }, stopAccess: { stopped.append($0) },
+            decodeFrames: { url in
+                if url == slow { XCTAssertFalse(Thread.isMainThread); started.fulfill(); gate.wait() }
+                return APNGDecoder.decode(url: url)
+            })
+        controller.loadAssetFromBookmark(Data([1])) { success in XCTAssertFalse(success); oldDone.fulfill() }
+        await fulfillment(of: [started], timeout: 5)
+        controller.loadAssetFromBookmark(Data([2])) { success in XCTAssertTrue(success); newDone.fulfill() }
+        await fulfillment(of: [newDone], timeout: 5)
+        gate.signal()
+        await fulfillment(of: [oldDone], timeout: 5)
+        XCTAssertEqual(settings.assetBookmark, Data([2]))
+        XCTAssertEqual(stopped, [slow])
+        withExtendedLifetime(controller) {}
+    }
+
+    @MainActor
+    func testDestroyedControllerReleasesInFlightScope() async {
+        let started = expectation(description: "decode started")
+        let finished = expectation(description: "decode finished")
+        let gate = DispatchSemaphore(value: 0)
+        let url = URL(fileURLWithPath: "/tmp/desktop-pet-inflight.png")
+        var stopped: [URL] = []
+        var controller: OverlayWindowController? = OverlayWindowController(
+            settings: AppSettings(record: .default(instanceID: "destroy-test", index: 1)),
+            resolveBookmark: { _ in url }, startAccess: { _ in true }, stopAccess: { stopped.append($0) },
+            decodeFrames: { _ in started.fulfill(); gate.wait(); return nil })
+        controller?.loadAssetFromBookmark(Data([1])) { success in XCTAssertFalse(success); finished.fulfill() }
+        await fulfillment(of: [started], timeout: 5)
+        weak var weakController = controller
+        controller = nil
+        XCTAssertNil(weakController)
+        gate.signal()
+        await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(stopped, [url])
+    }
+
     #if DEBUG
     func testHostedTestsUseIsolatedStartup() async {
         await MainActor.run {

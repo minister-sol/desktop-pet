@@ -19,6 +19,7 @@ final class OverlayWindowController: NSWindowController {
     private let resolveBookmark: (Data) -> URL?
     private let startAccess: (URL) -> Bool
     private let stopAccess: (URL) -> Void
+    private let decodeFrames: (URL) -> FrameSequence?
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Playback
@@ -46,11 +47,13 @@ final class OverlayWindowController: NSWindowController {
     init(settings: AppSettings,
          resolveBookmark: @escaping (Data) -> URL? = { SecurityScopedAccess.resolve(bookmark: $0) },
          startAccess: @escaping (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
-         stopAccess: @escaping (URL) -> Void = { $0.stopAccessingSecurityScopedResource() }) {
+         stopAccess: @escaping (URL) -> Void = { $0.stopAccessingSecurityScopedResource() },
+         decodeFrames: @escaping (URL) -> FrameSequence? = OverlayWindowController.decodeFrames) {
         self.settings = settings
         self.resolveBookmark = resolveBookmark
         self.startAccess = startAccess
         self.stopAccess = stopAccess
+        self.decodeFrames = decodeFrames
 
         let size = NSSize(width: 300, height: 300)
         let origin = settings.savedPosition()
@@ -164,7 +167,7 @@ final class OverlayWindowController: NSWindowController {
     // MARK: - Asset Loading
 
     func loadAssetFromBookmark(_ bookmark: Data, completion: @escaping (Bool) -> Void = { _ in }) {
-        guard let url = resolveBookmark(bookmark) else { completion(false); return }
+        guard let url = resolveBookmark(bookmark) else { loadGeneration = UUID(); completion(false); return }
         let started = startAccess(url)
         loadAsset(url: url, bookmarkData: bookmark, preservingSecurityScope: started, completion: completion)
     }
@@ -204,20 +207,23 @@ final class OverlayWindowController: NSWindowController {
             finish(VideoPlayer(url: url).map(LoadedAsset.video))
             return
         }
+        let decode = decodeFrames
         DispatchQueue.global(qos: .userInitiated).async {
-            let sequence: FrameSequence?
-            switch ext {
-            case "gif": sequence = GIFDecoder.decode(url: url)
-            case "png", "apng": sequence = APNGDecoder.decode(url: url)
-            default:
-                var directory: ObjCBool = false
-                if FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue {
-                    sequence = PNGSequenceDecoder.decode(directory: url)
-                } else {
-                    sequence = APNGDecoder.decode(url: url)
-                }
-            }
+            let sequence = decode(url)
             DispatchQueue.main.async { finish(sequence.map(LoadedAsset.frameSequence)) }
+        }
+    }
+
+    private static func decodeFrames(_ url: URL) -> FrameSequence? {
+        switch url.pathExtension.lowercased() {
+        case "gif": return GIFDecoder.decode(url: url)
+        case "png", "apng": return APNGDecoder.decode(url: url)
+        default:
+            var directory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: url.path, isDirectory: &directory), directory.boolValue {
+                return PNGSequenceDecoder.decode(directory: url)
+            }
+            return APNGDecoder.decode(url: url)
         }
     }
 
