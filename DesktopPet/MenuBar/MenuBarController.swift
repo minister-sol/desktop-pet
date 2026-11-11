@@ -6,7 +6,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-final class MenuBarController: NSObject {
+@MainActor final class MenuBarController: NSObject {
 
     // MARK: - Callbacks to AppDelegate
     var onAddPet: (() -> Void)?
