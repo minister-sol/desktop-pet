@@ -108,5 +108,7 @@ jobs:
             DesktopPet/Window/OverlayWindow.swift \
             DesktopPet/Window/PetView.swift \
             DesktopPet/Window/OverlayWindowController.swift \
+            DesktopPet/Reminders/Reminder.swift \
+            DesktopPet/Reminders/ReminderStore.swift \
             -o /tmp/dp-tests/OverlayWindowControllerTests
           /tmp/dp-tests/OverlayWindowControllerTests

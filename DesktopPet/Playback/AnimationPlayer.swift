@@ -33,8 +33,9 @@ final class AnimationPlayer {
     // MARK: - Public
     weak var delegate: AnimationPlayerDelegate?
 
-    var speed: Double = 1.0 {
-        didSet { speed = max(0.1, min(speed, 8.0)) }
+    var speed: Double {
+        get { stateLock.withLock { $0.speed } }
+        set { stateLock.withLock { $0.speed = max(0.1, min(newValue, 8.0)) } }
     }
 
     private(set) var isPlaying: Bool = false
@@ -51,6 +52,7 @@ final class AnimationPlayer {
         var playbackTime: TimeInterval = 0
         var lastHostTime: TimeInterval = 0
         var lastFrameIndex: Int = -1
+        var speed: Double = 1.0
     }
 
     // MARK: - Main-thread-only state
@@ -169,7 +171,7 @@ final class AnimationPlayer {
             state.lastHostTime = hostTime
 
             // Advance playback time
-            state.playbackTime += delta * speed
+            state.playbackTime += delta * state.speed
 
             // Determine frame
             let newIndex = sequence.frameIndex(at: state.playbackTime)

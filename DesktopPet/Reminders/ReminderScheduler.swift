@@ -6,18 +6,19 @@ import Combine
 @MainActor final class ReminderScheduler: ObservableObject {
     @Published private(set) var data = ReminderData()
     @Published var error: String?
-    var onDelivery: ((Reminder) -> Void)?
+    @Published private(set) var loadError: String?
+    var onDelivery: ((PendingReminder) -> Void)?
     private let store: ReminderStore
     private let now: () -> Date
     private let calendar: () -> Calendar
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
-    private var ready = false
+    private(set) var ready = false
 
     init(store: ReminderStore = ReminderStore(), now: @escaping () -> Date = Date.init,
          calendar: @escaping () -> Calendar = { Calendar.current }) {
         self.store = store; self.now = now; self.calendar = calendar
-        do { data = try store.load(); ready = true } catch { self.error = error.localizedDescription }
+        do { data = try store.load(); ready = true } catch { self.loadError = error.localizedDescription }
         let center = NotificationCenter.default
         for name in [NSNotification.Name.NSSystemClockDidChange, NSNotification.Name.NSSystemTimeZoneDidChange] {
             observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -48,12 +49,12 @@ import Combine
         copy.delivered = copy.delivered.filter { ids.contains($0.key) }
         persist(copy); schedule()
     }
-    func dismiss(_ id: UUID) {
-        var copy = data; copy.pending.removeAll { $0.id == id }; persist(copy)
+    @discardableResult func dismiss(_ id: UUID) -> Bool {
+        var copy = data; copy.pending.removeAll { $0.id == id }; return persist(copy)
     }
-    private func persist(_ copy: ReminderData) {
-        guard ready else { return }
-        do { try store.save(copy); data = copy; error = nil } catch { self.error = error.localizedDescription }
+    @discardableResult private func persist(_ copy: ReminderData) -> Bool {
+        guard ready else { return false }
+        do { try store.save(copy); data = copy; error = nil; return true } catch { self.error = error.localizedDescription; return false }
     }
     func schedule() {
         timer?.invalidate(); timer = nil
@@ -65,9 +66,17 @@ import Combine
         }
         if let timer { RunLoop.main.add(timer, forMode: .common) }
     }
+    #if DEBUG
+    var scheduledFireDateForTesting: Date? { timer?.fireDate }
+
+    func fireForTesting(expected: Date) {
+        fire(expected: expected)
+    }
+    #endif
+
     private func fire(expected: Date) {
         let current = now()
-        // A late callback after sleep or a clock jump is skipped.
+        // Reject early callbacks and callbacks at least 60 seconds late.
         guard current.timeIntervalSince(expected) >= 0, current.timeIntervalSince(expected) < 60 else { schedule(); return }
         var copy = data
         let today = day(current)
@@ -77,9 +86,10 @@ import Combine
                   let occurrence = Self.next(reminder, after: expected.addingTimeInterval(-1), calendar: calendar()) else { return false }
             return abs(occurrence.timeIntervalSince(expected)) < 1
         }
-        for reminder in due { copy.delivered[reminder.id.uuidString] = today; copy.pending.append(PendingReminder(reminder: reminder)) }
+        let deliveries = due.map { PendingReminder(reminder: $0) }
+        for delivery in deliveries { copy.delivered[delivery.reminder.id.uuidString] = today; copy.pending.append(delivery) }
         persist(copy)
-        if error == nil { due.forEach { onDelivery?($0) } }
+        if error == nil { deliveries.forEach { onDelivery?($0) } }
         schedule()
     }
 }

@@ -16,14 +16,41 @@ jobs:
       - uses: actions/checkout@v4
       - name: Record environment
         run: |
-          uname -a
-          uname -m
-          xcodebuild -version
-      - name: Build and test
+          mkdir -p ci-evidence
+          { echo "Commit: $GITHUB_SHA"; uname -a; uname -m; sw_vers; xcodebuild -version; } | tee ci-evidence/environment.txt
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing -project DesktopPet.xcodeproj -scheme DesktopPet -configuration Debug -destination 'platform=macOS' -derivedDataPath "$RUNNER_TEMP/desktop-pet-derived" CODE_SIGNING_ALLOWED=NO 2>&1 | tee ci-evidence/build.log
+      - name: Snapshot default application data before tests
+        run: |
+          python3 .github/scripts/snapshot-test-data.py > ci-evidence/data-before.json
+      - name: Run complete XCTest suite
+        id: xctest
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project DesktopPet.xcodeproj -scheme DesktopPet -configuration Debug -destination 'platform=macOS' -derivedDataPath "$RUNNER_TEMP/desktop-pet-derived" -resultBundlePath "$RUNNER_TEMP/DesktopPet.xcresult" CODE_SIGNING_ALLOWED=NO 2>&1 | tee ci-evidence/test.log
+      - name: Check test count and isolation evidence
+        if: always() && steps.xctest.outcome != 'skipped'
         run: |
           set -euo pipefail
-          xcodebuild test -project DesktopPet.xcodeproj -scheme DesktopPet -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO | tee xcode-test.log
-          if ! grep -Eq 'Executed [1-9][0-9]* tests?' xcode-test.log; then
-            echo 'No XCTest tests were reported.'
+          python3 .github/scripts/snapshot-test-data.py > ci-evidence/data-after.json
+          diff -u ci-evidence/data-before.json ci-evidence/data-after.json > ci-evidence/data-diff.txt || changed=1
+          count=$(grep -E 'Executed [0-9]+ tests?' ci-evidence/test.log | tail -1 || true)
+          echo "Test summary: ${count:-not found}" | tee ci-evidence/summary.txt
+          grep -Eq 'Executed [1-9][0-9]* tests?' <<< "$count" || { echo 'No XCTest tests reported.' | tee -a ci-evidence/summary.txt; exit 1; }
+          grep -E "Test Case .*testHostedTestsUseIsolatedStartup.* passed" ci-evidence/test.log >/dev/null || { echo 'Isolation startup test was not reported passing.' | tee -a ci-evidence/summary.txt; exit 1; }
+          if [ "${changed:-0}" = 1 ]; then
+            echo 'Default data snapshot changed; inspect data-diff.txt.' | tee -a ci-evidence/summary.txt
             exit 1
           fi
+          echo 'Startup assertion passed; monitored default data unchanged. Reads and graphical behavior are not verified.' | tee -a ci-evidence/summary.txt
+      - name: Publish evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-xctest-evidence
+          path: |
+            ci-evidence/
+            ${{ runner.temp }}/DesktopPet.xcresult
+          if-no-files-found: warn

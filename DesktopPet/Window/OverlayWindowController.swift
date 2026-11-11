@@ -16,6 +16,9 @@ final class OverlayWindowController: NSWindowController {
 
     // MARK: - Dependencies
     let settings: AppSettings
+    private let resolveBookmark: (Data) -> URL?
+    private let startAccess: (URL) -> Bool
+    private let stopAccess: (URL) -> Void
     private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Playback
@@ -26,6 +29,10 @@ final class OverlayWindowController: NSWindowController {
     private var petView: PetView!
     private var greeting: NSTextField?
     private var greetingDismissal: DispatchWorkItem?
+    private var reminderQueue: [PendingReminder] = []
+    private var reminderView: NSView?
+    private var dismissReminder: ((UUID) -> Bool)?
+    var onVisibilityChanged: (() -> Void)?
 
     // MARK: - State
     private var currentAssetURL: URL?
@@ -35,8 +42,14 @@ final class OverlayWindowController: NSWindowController {
 
     // MARK: - Init
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings,
+         resolveBookmark: @escaping (Data) -> URL? = { SecurityScopedAccess.resolve(bookmark: $0) },
+         startAccess: @escaping (URL) -> Bool = { $0.startAccessingSecurityScopedResource() },
+         stopAccess: @escaping (URL) -> Void = { $0.stopAccessingSecurityScopedResource() }) {
         self.settings = settings
+        self.resolveBookmark = resolveBookmark
+        self.startAccess = startAccess
+        self.stopAccess = stopAccess
 
         let size = NSSize(width: 300, height: 300)
         let origin = settings.savedPosition()
@@ -142,6 +155,7 @@ final class OverlayWindowController: NSWindowController {
         } else {
             window?.orderOut(nil)
         }
+        onVisibilityChanged?()
     }
 
     var isVisible: Bool { window?.isVisible ?? false }
@@ -149,8 +163,8 @@ final class OverlayWindowController: NSWindowController {
     // MARK: - Asset Loading
 
     func loadAssetFromBookmark(_ bookmark: Data) -> Bool {
-        guard let url = SecurityScopedAccess.resolve(bookmark: bookmark) else { return false }
-        let didStartSecurityScope = url.startAccessingSecurityScopedResource()
+        guard let url = resolveBookmark(bookmark) else { return false }
+        let didStartSecurityScope = startAccess(url)
 
         let didLoad = loadAsset(
             url: url,
@@ -158,7 +172,7 @@ final class OverlayWindowController: NSWindowController {
             preservingSecurityScope: didStartSecurityScope
         )
         if !didLoad, didStartSecurityScope {
-            url.stopAccessingSecurityScopedResource()
+            stopAccess(url)
         }
 
         return didLoad
@@ -167,7 +181,7 @@ final class OverlayWindowController: NSWindowController {
     /// Stop accessing the current security-scoped resource if one is active.
     private func stopCurrentSecurityScopedAccess() {
         guard currentAssetIsSecurityScoped, let url = currentAssetURL else { return }
-        url.stopAccessingSecurityScopedResource()
+        stopAccess(url)
         currentAssetIsSecurityScoped = false
     }
 
@@ -183,14 +197,15 @@ final class OverlayWindowController: NSWindowController {
 
         applyLoadedAsset(loadedAsset)
 
+        let retainPreviousScope = previousAssetWasSecurityScoped && previousAssetURL == url && !preservingSecurityScope
         currentAssetURL = url
-        currentAssetIsSecurityScoped = preservingSecurityScope
+        currentAssetIsSecurityScoped = preservingSecurityScope || retainPreviousScope
         settings.assetBookmark = bookmarkData
 
         if previousAssetWasSecurityScoped,
            let previousAssetURL,
-           previousAssetURL != url {
-            previousAssetURL.stopAccessingSecurityScopedResource()
+           !retainPreviousScope {
+            stopAccess(previousAssetURL)
         }
 
         return true
@@ -292,10 +307,57 @@ extension OverlayWindowController: AnimationPlayerDelegate {
 
 extension OverlayWindowController: PetViewDelegate {
     func petViewDidClick(_ view: PetView) {
-        showReminder("你好呀！")
+        showGreeting("你好呀！")
     }
 
-    func showReminder(_ text: String) {
+    func showReminder(_ pending: PendingReminder, dismiss: @escaping (UUID) -> Bool) {
+        guard !reminderQueue.contains(where: { $0.id == pending.id }) else { return }
+        dismissReminder = dismiss
+        reminderQueue.append(pending)
+        if reminderQueue.count == 1 { displayCurrentReminder() }
+    }
+
+    func retainReminders(ids: Set<UUID>) {
+        let currentID = reminderQueue.first?.id
+        reminderQueue.removeAll { !ids.contains($0.id) }
+        if currentID != reminderQueue.first?.id { displayCurrentReminder() }
+    }
+
+    private func displayCurrentReminder() {
+        reminderView?.removeFromSuperview()
+        reminderView = nil
+        guard let pending = reminderQueue.first, let view = petView else { return }
+        greetingDismissal?.cancel()
+        greeting?.removeFromSuperview()
+        greeting = nil
+        let container = NSView(frame: NSRect(x: 10, y: max(0, view.bounds.height - 40), width: max(0, view.bounds.width - 20), height: 28))
+        container.autoresizingMask = [.width, .minYMargin]
+        let button = NSButton(title: "×", target: self, action: #selector(dismissCurrentReminder))
+        button.frame = NSRect(x: max(0, container.bounds.width - 28), y: 0, width: 28, height: 28)
+        button.autoresizingMask = [.minXMargin]
+        let label = NSTextField(labelWithString: pending.reminder.text)
+        label.alignment = .center
+        label.drawsBackground = true
+        label.backgroundColor = .controlBackgroundColor
+        label.frame = NSRect(x: 0, y: 0, width: max(0, container.bounds.width - 28), height: 28)
+        label.autoresizingMask = [.width]
+        container.addSubview(label)
+        container.addSubview(button)
+        view.addSubview(container)
+        reminderView = container
+    }
+
+    @objc private func dismissCurrentReminder() {
+        guard let id = reminderQueue.first?.id else { return }
+        if dismissReminder?(id) != true {
+            let label = reminderView?.subviews.compactMap { $0 as? NSTextField }.first
+            label?.stringValue = "Could not dismiss. Retry or open Reminders."
+            label?.toolTip = reminderQueue.first?.reminder.text
+        }
+    }
+
+    private func showGreeting(_ text: String) {
+        guard reminderQueue.isEmpty else { return }
         guard let view = petView else { return }
         greetingDismissal?.cancel()
         greeting?.removeFromSuperview()
