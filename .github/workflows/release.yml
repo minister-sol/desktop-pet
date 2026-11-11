@@ -11,14 +11,14 @@ on:
         required: true
         default: 'v1.0.0'
 
-# Required for creating releases and pushing Cask updates back to master
+# Required for creating releases and pushing Cask updates back to main
 permissions:
   contents: write
 
 jobs:
   build-and-release:
     name: Build DMG and publish release
-    runs-on: macos-14
+    runs-on: macos-15
     outputs:
       version: ${{ steps.version.outputs.version }}
       sha256: ${{ steps.sha.outputs.sha256 }}
@@ -116,6 +116,10 @@ jobs:
             DesktopPet/Window/OverlayWindow.swift \
             DesktopPet/Window/PetView.swift \
             DesktopPet/Window/OverlayWindowController.swift \
+            DesktopPet/Reminders/Reminder.swift \
+            DesktopPet/Reminders/ReminderStore.swift \
+            DesktopPet/Reminders/ReminderScheduler.swift \
+            DesktopPet/Reminders/ReminderView.swift \
             DesktopPet/MenuBar/MenuBarController.swift \
             -o "$BIN/DesktopPet"
 
@@ -257,7 +261,7 @@ jobs:
           git add Casks/desktop-pet.rb
           git diff --staged --quiet \
             || git commit -m "chore(cask): bump to ${{ steps.version.outputs.semver }} and update SHA256 [skip ci]"
-          git push origin HEAD:master
+          git push origin HEAD:main
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

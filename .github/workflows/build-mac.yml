@@ -2,14 +2,14 @@ name: Build macOS
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   build:
     name: Build DesktopPet.app
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
@@ -50,6 +50,10 @@ jobs:
             DesktopPet/Window/OverlayWindow.swift \
             DesktopPet/Window/PetView.swift \
             DesktopPet/Window/OverlayWindowController.swift \
+            DesktopPet/Reminders/Reminder.swift \
+            DesktopPet/Reminders/ReminderStore.swift \
+            DesktopPet/Reminders/ReminderScheduler.swift \
+            DesktopPet/Reminders/ReminderView.swift \
             DesktopPet/MenuBar/MenuBarController.swift \
             -o "$BIN_DIR/DesktopPet"
 

@@ -102,6 +102,10 @@ swiftc \
   DesktopPet/Window/OverlayWindow.swift \
   DesktopPet/Window/PetView.swift \
   DesktopPet/Window/OverlayWindowController.swift \
+  DesktopPet/Reminders/Reminder.swift \
+  DesktopPet/Reminders/ReminderStore.swift \
+  DesktopPet/Reminders/ReminderScheduler.swift \
+  DesktopPet/Reminders/ReminderView.swift \
   DesktopPet/MenuBar/MenuBarController.swift \
   -o build/DesktopPet.app/Contents/MacOS/DesktopPet
 
@@ -332,3 +336,9 @@ Desktop Pet은 네이티브 Swift + AppKit으로 만들어졌습니다.
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+## Daily reminders
+
+Open **Reminders…** from the menu bar to add, edit, enable, or delete daily reminders and dismiss pending items. Reminders are local and require the app to be running and the Mac awake. Missed reminders are not replayed after sleep or launch. Times follow the current local time zone.
+
+Reminders that were already delivered remain in the pending list until dismissed. A visible pet presents pending items one at a time; when pets are hidden or removed, the menu bar remains available to review them. In click-through mode, dismiss reminders from the menu bar. If reminder data cannot be loaded, editing is disabled to protect the existing file; resolve the reported problem before restarting the app.

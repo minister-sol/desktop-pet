@@ -1,14 +1,14 @@
 name: Build Check
 
-# Runs on every PR and every push to master.
+# Runs on every PR and every push to main.
 # Verifies the project compiles with zero errors and zero warnings.
 # This is the required status check before any PR can be merged.
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
   push:
-    branches: [master]
+    branches: [main]
 
 permissions:
   contents: read
@@ -16,7 +16,7 @@ permissions:
 jobs:
   build:
     name: Compile (arm64, macOS 14)
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
@@ -57,6 +57,10 @@ jobs:
             DesktopPet/Window/OverlayWindow.swift \
             DesktopPet/Window/PetView.swift \
             DesktopPet/Window/OverlayWindowController.swift \
+            DesktopPet/Reminders/Reminder.swift \
+            DesktopPet/Reminders/ReminderStore.swift \
+            DesktopPet/Reminders/ReminderScheduler.swift \
+            DesktopPet/Reminders/ReminderView.swift \
             DesktopPet/MenuBar/MenuBarController.swift \
             -o /tmp/dp-check-build/DesktopPet \
             2>&1 | tee /tmp/compile.log
@@ -104,5 +108,7 @@ jobs:
             DesktopPet/Window/OverlayWindow.swift \
             DesktopPet/Window/PetView.swift \
             DesktopPet/Window/OverlayWindowController.swift \
+            DesktopPet/Reminders/Reminder.swift \
+            DesktopPet/Reminders/ReminderStore.swift \
             -o /tmp/dp-tests/OverlayWindowControllerTests
           /tmp/dp-tests/OverlayWindowControllerTests
