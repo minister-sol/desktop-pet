@@ -61,7 +61,7 @@ final class PetInteractionTests: XCTestCase {
         let first = await load(Data([1])); XCTAssertTrue(first)
         let second = await load(Data([2])); XCTAssertTrue(second)
         XCTAssertEqual(stops, [file])
-        let third = await load(Data([3])); XCTAssertTrue(third)
+        let third = await load(Data([3])); XCTAssertFalse(third)
         let ordinary: Bool = await withCheckedContinuation { continuation in
             controller?.loadAsset(url: file) { continuation.resume(returning: $0) }
         }
@@ -161,6 +161,31 @@ final class PetInteractionTests: XCTestCase {
         gate2.signal()
         await fulfillment(of: [finished], timeout: 5)
         XCTAssertEqual(stops, 2)
+    }
+
+    @MainActor
+    func testBookmarkReloadRejectsFailedScopeBeforeControllerDestruction() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        var starts = 0
+        var stops = 0
+        var controller: OverlayWindowController? = OverlayWindowController(
+            settings: AppSettings(record: .default(instanceID: "bookmark-failure", index: 1)),
+            resolveBookmark: { _ in file }, startAccess: { _ in starts += 1; return starts == 1 },
+            stopAccess: { _ in stops += 1 })
+        let first: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAssetFromBookmark(Data([1])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(first)
+        let second: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAssetFromBookmark(Data([2])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertFalse(second)
+        controller = nil
+        XCTAssertEqual(starts, 2)
+        XCTAssertEqual(stops, 1)
     }
 
     @MainActor

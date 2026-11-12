@@ -169,6 +169,11 @@ final class OverlayWindowController: NSWindowController {
     func loadAssetFromBookmark(_ bookmark: Data, completion: @escaping (Bool) -> Void = { _ in }) {
         guard let url = resolveBookmark(bookmark) else { loadGeneration = UUID(); completion(false); return }
         let started = startAccess(url)
+        if !started && currentAssetIsSecurityScoped && currentAssetURL == url {
+            loadGeneration = UUID()
+            completion(false)
+            return
+        }
         loadAsset(url: url, bookmarkData: bookmark, preservingSecurityScope: started, completion: completion)
     }
 
