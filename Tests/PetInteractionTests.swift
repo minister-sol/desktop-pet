@@ -32,6 +32,7 @@ final class PetInteractionTests: XCTestCase {
         XCTAssertEqual(invalidReads, 0)
     }
 
+    @MainActor
     func testSecurityScopeSameURLReplacementBalancesAccess() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -43,39 +44,182 @@ final class PetInteractionTests: XCTestCase {
         let other = directory.appendingPathComponent("other.png")
         try Data("invalid".utf8).write(to: invalid)
         try png.write(to: other)
-
-        await MainActor.run {
-            _ = NSApplication.shared
-            var starts = 0
-            var stops = 0
-            var stoppedURLs: [URL] = []
-            autoreleasepool {
-                var record = PetRecord.default(instanceID: "scope-test", index: 1)
-                record.playing = false
-                let settings = AppSettings(record: record)
-                let controller = OverlayWindowController(settings: settings,
-                    resolveBookmark: { data in data == Data([4]) ? invalid : (data == Data([5]) ? other : file) },
-                    startAccess: { _ in starts += 1; return starts != 3 },
-                    stopAccess: { url in stops += 1; stoppedURLs.append(url) })
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([1])))
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([2])))
-                XCTAssertEqual(starts, 2)
-                XCTAssertEqual(stops, 1)
-                XCTAssertEqual(stoppedURLs, [file])
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([3])))
-                XCTAssertEqual(stops, 1)
-                XCTAssertTrue(controller.loadAsset(url: file))
-                XCTAssertEqual(stops, 1)
-                XCTAssertFalse(controller.loadAssetFromBookmark(Data([4])))
-                XCTAssertEqual(stops, 2)
-                XCTAssertEqual(stoppedURLs, [file, invalid])
-                XCTAssertTrue(controller.loadAssetFromBookmark(Data([5])))
-                XCTAssertEqual(stops, 3)
-                XCTAssertEqual(stoppedURLs, [file, invalid, file])
+        _ = NSApplication.shared
+        var starts = 0
+        var stops: [URL] = []
+        var record = PetRecord.default(instanceID: "scope-test", index: 1)
+        record.playing = false
+        var controller: OverlayWindowController? = OverlayWindowController(settings: AppSettings(record: record),
+            resolveBookmark: { data in data == Data([4]) ? invalid : (data == Data([5]) ? other : file) },
+            startAccess: { _ in starts += 1; return starts != 3 },
+            stopAccess: { stops.append($0) })
+        func load(_ data: Data) async -> Bool {
+            await withCheckedContinuation { continuation in
+                controller?.loadAssetFromBookmark(data) { continuation.resume(returning: $0) }
             }
-            XCTAssertEqual(stops, 4)
-            XCTAssertEqual(stoppedURLs, [file, invalid, file, other])
         }
+        let first = await load(Data([1])); XCTAssertTrue(first)
+        let second = await load(Data([2])); XCTAssertTrue(second)
+        XCTAssertEqual(stops, [file])
+        let third = await load(Data([3])); XCTAssertFalse(third)
+        let ordinary: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAsset(url: file) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(ordinary)
+        let failed = await load(Data([4])); XCTAssertFalse(failed)
+        XCTAssertEqual(stops, [file, file, invalid])
+        let replacement = await load(Data([5])); XCTAssertTrue(replacement)
+        XCTAssertEqual(stops, [file, file, invalid, file])
+        controller = nil
+        XCTAssertEqual(stops, [file, file, invalid, file, other])
+    }
+
+    @MainActor
+    func testSupersededDecodeDoesNotReplaceNewerAssetAndReleasesScope() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let slow = directory.appendingPathComponent("slow.png")
+        let fast = directory.appendingPathComponent("fast.png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: slow); try png.write(to: fast)
+        let started = expectation(description: "background decode started")
+        let oldDone = expectation(description: "old request finished")
+        let newDone = expectation(description: "new request finished")
+        let gate = DispatchSemaphore(value: 0)
+        var stopped: [URL] = []
+        let settings = AppSettings(record: .default(instanceID: "async-test", index: 1))
+        let controller = OverlayWindowController(settings: settings,
+            resolveBookmark: { $0 == Data([1]) ? slow : fast },
+            startAccess: { _ in true }, stopAccess: { stopped.append($0) },
+            decodeFrames: { url in
+                if url == slow { XCTAssertFalse(Thread.isMainThread); started.fulfill(); gate.wait() }
+                return APNGDecoder.decode(url: url)
+            })
+        controller.loadAssetFromBookmark(Data([1])) { success in XCTAssertFalse(success); oldDone.fulfill() }
+        await fulfillment(of: [started], timeout: 5)
+        controller.loadAssetFromBookmark(Data([2])) { success in XCTAssertTrue(success); newDone.fulfill() }
+        await fulfillment(of: [newDone], timeout: 5)
+        gate.signal()
+        await fulfillment(of: [oldDone], timeout: 5)
+        XCTAssertEqual(settings.assetBookmark, Data([2]))
+        XCTAssertEqual(stopped, [slow])
+        withExtendedLifetime(controller) {}
+    }
+
+    @MainActor
+    func testDestroyedControllerReleasesInFlightScope() async {
+        let started = expectation(description: "decode started")
+        let finished = expectation(description: "decode finished")
+        let gate = DispatchSemaphore(value: 0)
+        let url = URL(fileURLWithPath: "/tmp/desktop-pet-inflight.png")
+        var stopped: [URL] = []
+        var controller: OverlayWindowController? = OverlayWindowController(
+            settings: AppSettings(record: .default(instanceID: "destroy-test", index: 1)),
+            resolveBookmark: { _ in url }, startAccess: { _ in true }, stopAccess: { stopped.append($0) },
+            decodeFrames: { _ in started.fulfill(); gate.wait(); return nil })
+        controller?.loadAssetFromBookmark(Data([1])) { success in XCTAssertFalse(success); finished.fulfill() }
+        await fulfillment(of: [started], timeout: 5)
+        weak var weakController = controller
+        controller = nil
+        XCTAssertNil(weakController)
+        gate.signal()
+        await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(stopped, [url])
+    }
+
+    @MainActor
+    func testDirectReloadKeepsIndependentScopeUntilDecodeCompletes() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let started = expectation(description: "reload started")
+        let finished = expectation(description: "reload finished")
+        let gate2 = DispatchSemaphore(value: 0)
+        var starts = 0
+        var stops = 0
+        var controller: OverlayWindowController?
+        var decodeCount = 0
+        let lock = NSLock()
+        controller = OverlayWindowController(settings: AppSettings(record: .default(instanceID: "reload2", index: 2)),
+            resolveBookmark: { _ in file }, startAccess: { _ in starts += 1; return true }, stopAccess: { _ in stops += 1 },
+            decodeFrames: { url in
+                lock.lock(); decodeCount += 1; let count = decodeCount; lock.unlock()
+                if count == 2 { started.fulfill(); gate2.wait() }
+                return APNGDecoder.decode(url: url)
+            })
+        let loaded: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAssetFromBookmark(Data([1])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(loaded)
+        controller?.loadAsset(url: file) { success in XCTAssertFalse(success); finished.fulfill() }
+        await fulfillment(of: [started], timeout: 5)
+        controller = nil
+        XCTAssertEqual(starts, 2)
+        XCTAssertEqual(stops, 1)
+        gate2.signal()
+        await fulfillment(of: [finished], timeout: 5)
+        XCTAssertEqual(stops, 2)
+    }
+
+    @MainActor
+    func testBookmarkReloadRejectsFailedScopeBeforeControllerDestruction() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        var starts = 0
+        var stops = 0
+        var controller: OverlayWindowController? = OverlayWindowController(
+            settings: AppSettings(record: .default(instanceID: "bookmark-failure", index: 1)),
+            resolveBookmark: { _ in file }, startAccess: { _ in starts += 1; return starts == 1 },
+            stopAccess: { _ in stops += 1 })
+        let first: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAssetFromBookmark(Data([1])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(first)
+        let second: Bool = await withCheckedContinuation { continuation in
+            controller?.loadAssetFromBookmark(Data([2])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertFalse(second)
+        controller = nil
+        XCTAssertEqual(starts, 2)
+        XCTAssertEqual(stops, 1)
+    }
+
+    @MainActor
+    func testDirectReloadRejectsFailedIndependentScope() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".png")
+        let png = try XCTUnwrap(Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=="))
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        var starts = 0
+        let controller = OverlayWindowController(settings: AppSettings(record: .default(instanceID: "scope-failure", index: 1)),
+            resolveBookmark: { _ in file }, startAccess: { _ in starts += 1; return starts == 1 }, stopAccess: { _ in })
+        let initial: Bool = await withCheckedContinuation { continuation in
+            controller.loadAssetFromBookmark(Data([1])) { continuation.resume(returning: $0) }
+        }
+        XCTAssertTrue(initial)
+        let reload: Bool = await withCheckedContinuation { continuation in
+            controller.loadAsset(url: file) { continuation.resume(returning: $0) }
+        }
+        XCTAssertFalse(reload)
+        XCTAssertEqual(starts, 2)
+    }
+
+    @MainActor
+    func testRestoredPetsRetainSavedOrderWhenLoadsFinishOutOfOrder() {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let store = PetsStore(storeURL: directory.appendingPathComponent("pets.plist"))
+        let scheduler = ReminderScheduler(store: ReminderStore(url: directory.appendingPathComponent("reminders.plist")))
+        let delegate = AppDelegate(petsStore: store, scheduler: scheduler, pets: [])
+        delegate.setRestorationOrderForTesting(["a", "b", "c"])
+        for id in ["c", "a", "b"] {
+            delegate.insertRestoredPetForTesting(OverlayWindowController(settings: AppSettings(record: .default(instanceID: id, index: 1))))
+        }
+        XCTAssertEqual(delegate.restoredPetIDsForTesting, ["a", "b", "c"])
+        try? FileManager.default.removeItem(at: directory)
     }
 
     #if DEBUG

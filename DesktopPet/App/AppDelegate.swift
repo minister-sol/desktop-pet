@@ -9,6 +9,7 @@ import Combine
 
     // MARK: - State
     private var pets: [OverlayWindowController] = []
+    private var restorationOrder: [String: Int] = [:]
     private let petsStore: PetsStore
     private var menuBarController: MenuBarController!
     private var reminderScheduler: ReminderScheduler!
@@ -44,6 +45,7 @@ import Combine
         menuBarController.onRemovePet = { [weak self] id in self?.removePet(id: id) }
 
         let savedRecords = petsStore.loadRecords()
+        restorationOrder = Dictionary(uniqueKeysWithValues: savedRecords.enumerated().map { ($0.element.instanceID, $0.offset) })
 
         if savedRecords.isEmpty {
             addPet()
@@ -53,15 +55,34 @@ import Combine
                 let wc = OverlayWindowController(settings: settings)
                 observeVisibility(of: wc)
 
-                if let bookmark = settings.assetBookmark, wc.loadAssetFromBookmark(bookmark) {
-                    wc.showWindow(nil)
-                    pets.append(wc)
+                if let bookmark = settings.assetBookmark {
+                    wc.loadAssetFromBookmark(bookmark) { [weak self, wc] success in
+                        guard let self, success else { return }
+                        wc.showWindow(nil)
+                        self.insertRestoredPet(wc)
+                        self.menuBarController.update(pets: self.pets)
+                        self.redistributeReminders()
+                    }
                 }
             }
             menuBarController.update(pets: pets)
             redistributeReminders()
         }
     }
+
+    private func insertRestoredPet(_ pet: OverlayWindowController) {
+        let rank = restorationOrder[pet.settings.instanceID] ?? Int.max
+        let index = pets.firstIndex { (restorationOrder[$0.settings.instanceID] ?? Int.max) > rank } ?? pets.endIndex
+        pets.insert(pet, at: index)
+    }
+
+    #if DEBUG
+    func setRestorationOrderForTesting(_ ids: [String]) {
+        restorationOrder = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($0.element, $0.offset) })
+    }
+    func insertRestoredPetForTesting(_ pet: OverlayWindowController) { insertRestoredPet(pet) }
+    var restoredPetIDsForTesting: [String] { pets.map { $0.settings.instanceID } }
+    #endif
 
     private func connectReminders() {
         reminderScheduler.onDelivery = { [weak self] pending in
@@ -90,17 +111,7 @@ import Combine
         let urls = menuBarController.openAddPetsPicker()
         guard !urls.isEmpty else { return }
 
-        var didAddAnyPet = false
-        for url in urls {
-            if addPet(for: url) {
-                didAddAnyPet = true
-            }
-        }
-
-        if didAddAnyPet {
-            menuBarController.update(pets: pets)
-            redistributeReminders()
-        }
+        for url in urls { addPet(for: url) }
     }
 
     func removePet(id: String) {
@@ -115,18 +126,19 @@ import Combine
 
     // MARK: - Helpers
 
-    private func addPet(for url: URL) -> Bool {
+    private func addPet(for url: URL) {
         let record = petsStore.makeNewPetRecord()
         let settings = makeSettings(record: record)
         let wc = OverlayWindowController(settings: settings)
         observeVisibility(of: wc)
-
-        guard wc.loadAsset(url: url) else { return false }
-
-        wc.showWindow(nil)
-        pets.append(wc)
-        petsStore.upsert(settings.toRecord())
-        return true
+        wc.loadAsset(url: url) { [weak self, wc] success in
+            guard let self, success else { return }
+            wc.showWindow(nil)
+            self.pets.append(wc)
+            self.petsStore.upsert(settings.toRecord())
+            self.menuBarController.update(pets: self.pets)
+            self.redistributeReminders()
+        }
     }
 
     private func makeSettings(record: PetRecord) -> AppSettings {

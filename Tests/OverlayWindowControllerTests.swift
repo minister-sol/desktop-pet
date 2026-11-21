@@ -20,7 +20,10 @@ struct OverlayWindowControllerTests {
         try "not an animation".write(to: invalidURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: invalidURL) }
 
-        if controller.loadAsset(url: invalidURL) {
+        var loadResult: Bool?
+        controller.loadAsset(url: invalidURL) { loadResult = $0 }
+        while loadResult == nil { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
+        if loadResult == true {
             throw TestFailure("Expected invalid asset load to fail")
         }
 
